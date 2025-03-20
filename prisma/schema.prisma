@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "mysql"
+  url          = env("DATABASE_URL")
+  relationMode = "prisma"
+}
+
+model Client {
+  id         String     @id @default(cuid())
+  name       String
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  users      User[]
+  businesses Business[]
+}
+
+model Business {
+  id           String           @id @default(cuid())
+  name         String
+  gaPropertyId String
+  gscSiteUrl   String?
+  clientId     String
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  pageSpeed    String?
+  client       Client           @relation(fields: [clientId], references: [id])
+  forms        FormSubmission[]
+
+  @@index([clientId])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  avatarUrl     String?
+  clientId      String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  scope         UserScope @default(READ)
+  password      String?   @db.VarChar(255)
+  firstName     String?   @db.VarChar(255)
+  lastName      String?   @db.VarChar(255)
+  isLoginGoogle Boolean?  @default(false)
+  client        Client    @relation(fields: [clientId], references: [id])
+
+  @@index([clientId])
+}
+
+model FormSubmission {
+  id            String               @id @default(cuid())
+  firstName     String
+  lastName      String
+  email         String
+  phoneNumber   String
+  address       String?
+  message       String
+  internalNotes String?
+  businessId    String
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  closedAt      DateTime?
+  status        FormSubmissionStatus @default(NOT_CONTACTED)
+  customField1  String?
+  business      Business             @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
+}
+
+enum UserScope {
+  READ
+  WRITE
+}
+
+enum FormSubmissionStatus {
+  NOT_CONTACTED
+  CONTACTED
+  NO_ANSWER
+  FOLLOW_UP
+  BAD_LEAD
+  CLOSED
+}
