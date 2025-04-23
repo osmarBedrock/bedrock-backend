@@ -12,6 +12,9 @@ class Server {
     constructor() {
         this.app = express();
         this.port = process.env.PORT;
+        console.log('first', process.env.GOOGLE_CLIENT_ID,
+            process.env.GOOGLE_CLIENT_SECRET,
+            process.env.GOOGLE_REDIRECT_URI)
         this.routePath = '/api';
 
         // Middlewares

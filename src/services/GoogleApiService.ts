@@ -17,6 +17,9 @@ export class GoogleApiService {
 
 
   constructor(clientId: string, clientSecret: string, redirectUri: string) {
+    console.log('constructopr', clientId,
+      clientSecret,
+      redirectUri)
     this.oAuth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
     this.pageSpeed = google.pagespeedonline("v5");
     this.PAGESPEED_API_KEY = process.env.GOOGLE_PAGESPEED_API_KEY || '';

@@ -2,12 +2,14 @@
   "name": "plugin",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/server.ts",
   "scripts": {
-    "start": "NODE_ENV=production dotenv -e config/production.env node dist/server.js",
+    "start": "NODE_ENV=production ts-node src/server.ts",
     "dev": "nodemon src/server.ts",
     "local": "NODE_ENV=local dotenv -e config/local.env nodemon src/index.ts",
-    "build": "tsc"
+    "vercel-build": "npm install && prisma generate",
+    "build": "prisma generate",
+    "postinstall": "prisma generate"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +21,7 @@
     "body-parser": "^1.20.3",
     "chrome-launcher": "^1.1.2",
     "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
     "dotenv": "^16.4.7",
     "dotenv-cli": "^7.4.4",
     "express": "^4.21.1",
