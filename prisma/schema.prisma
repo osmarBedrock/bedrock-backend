@@ -8,78 +8,88 @@ datasource db {
   relationMode = "prisma"
 }
 
-model Client {
-  id         String     @id @default(cuid())
-  name       String
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-  users      User[]
-  businesses Business[]
-}
-
-model Business {
-  id           String           @id @default(cuid())
-  name         String
-  gaPropertyId String
-  gscSiteUrl   String?
-  clientId     String
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  pageSpeed    String?
-  client       Client           @relation(fields: [clientId], references: [id])
-  forms        FormSubmission[]
-
-  @@index([clientId])
-}
-
 model User {
-  id            String    @id @default(cuid())
-  name          String
-  email         String    @unique
-  avatarUrl     String?
-  clientId      String
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  scope         UserScope @default(READ)
-  password      String?   @db.VarChar(255)
-  firstName     String?   @db.VarChar(255)
-  lastName      String?   @db.VarChar(255)
-  isLoginGoogle Boolean?  @default(false)
-  client        Client    @relation(fields: [clientId], references: [id])
-
-  @@index([clientId])
+  id                 Int       @id @default(autoincrement())
+  firstName          String?
+  lastName           String?
+  email              String    @unique
+  passwordHash       String?
+  googleId           String?   @unique
+  emailVerified      Boolean   @default(false)
+  planType           PlanType  @default(ESSENTIALS)
+  stripeCustomerId   String?
+  currentPeriodEnd   DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  leads              Lead[]
+  integrations       Integration[]
+  dailyChatbotUsage  DailyChatbotUsage?
+  planUsage          PlanUsage?
+  enterpriseName     String? 
+  websites           Website[]
 }
 
-model FormSubmission {
-  id            String               @id @default(cuid())
-  firstName     String
-  lastName      String
-  email         String
-  phoneNumber   String
-  address       String?
-  message       String
-  internalNotes String?
-  businessId    String
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-  closedAt      DateTime?
-  status        FormSubmissionStatus @default(NOT_CONTACTED)
-  customField1  String?
-  business      Business             @relation(fields: [businessId], references: [id])
-
-  @@index([businessId])
+enum PlanType {
+  ESSENTIALS
+  PRO
+  ELITE
 }
 
-enum UserScope {
-  READ
-  WRITE
+
+model Website {
+  id                 Int       @id @default(autoincrement())
+  domain             String
+  verificationCode   String?
+  isVerified         Boolean   @default(false)
+  userId             Int
+  user               User     @relation(fields: [userId], references: [id])
+  googleAccessToken  String?   @db.Text
+  googleRefreshToken String?   @db.Text
+  semrushApiKey      String?   @db.Text
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
 
-enum FormSubmissionStatus {
-  NOT_CONTACTED
-  CONTACTED
-  NO_ANSWER
-  FOLLOW_UP
-  BAD_LEAD
-  CLOSED
+model Lead {
+  id                 Int       @id @default(autoincrement())
+  userId             Int
+  user               User      @relation(fields: [userId], references: [id])
+  name               String?
+  email              String?
+  phone              String?
+  status             String    @default("NEW")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model Integration {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  service     String   // Ej: "google", "semrush", "facebook"
+  accessToken String   @db.Text
+  refreshToken String? @db.Text
+  metadata    Json?
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, service]) // Un usuario solo puede tener una integración por servicio
+}
+
+model DailyChatbotUsage {
+  userId             Int       @id
+  user               User      @relation(fields: [userId], references: [id])
+  interactionsToday  Int       @default(0)
+  lastResetDate      DateTime  @default(now())
+}
+
+model PlanUsage {
+  userId                  Int       @id
+  leadCount               Int       @default(0)
+  chatbotInteractionsToday Int      @default(0)
+  lastResetDate           DateTime  @default(now())
+  websiteCount            Int       @default(0)
+  updatedAt               DateTime  @updatedAt
+  user                    User      @relation(fields: [userId], references: [id])
 }

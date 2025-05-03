@@ -1,82 +1,47 @@
 import { Request, Response } from 'express';
-import { GoogleApiService } from '../services/GoogleApiService';
+import { PrismaClient } from '@prisma/client';  
+import { PrismaClientSingleton } from '../database/config';
 
-const createGoogleService = () => new GoogleApiService(
-  process.env.GOOGLE_CLIENT_ID!,
-  process.env.GOOGLE_CLIENT_SECRET!,
-  process.env.GOOGLE_REDIRECT_URI!
-);
+export class AnalyticsController {
+  private prisma: PrismaClient;
 
-export const getAnalyticsData = async (req: Request, res: Response) => {
-  try {
-    const { viewId, googleToken, range, metric, dimensions, isRealTime, keepEmptyRows } = req.body;
-    const googleService = createGoogleService();
-    googleService.setCredentials(googleToken);
-    const body = googleService.getBodyAnalytics(range, metric, dimensions, isRealTime, keepEmptyRows);
-    const data = await googleService.getAnalyticsDataV3(viewId, body, isRealTime);
-
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch analytics data', details: error });
+  constructor() {
+    this.prisma = PrismaClientSingleton.getInstance();
   }
-};
 
-export const redirectAuthUrl = async (req: Request, res: Response) => {
-    try {
-        const googleService = createGoogleService();
-        const authUrl = googleService.getAuthUrl();
-        res.status(200).json({url: authUrl});
+  async getUsage(req: Request, res: Response) {
+    try { 
+      const {userId} = req.headers;
+      const usage = await this.prisma.planUsage.findUnique({
+        where: { userId: parseInt(userId as string) },
+        include: { user: true }
+      });
+      
+      res.json({
+        websiteCount: usage?.websiteCount || 0,
+        leadCount: usage?.leadCount || 0,
+        chatbotUsage: usage?.chatbotInteractionsToday || 0
+      });
     } catch (error) {
-        console.log('error', error)
-        res.status(500).json({error: 'Failed to load auth', details: error})
+      res.status(500).json({ error: 'Error fetching usage data' });
     }
-}
+  }
 
-export const googleAuthCallback = async (req: Request, res: Response) => {
+  async getKeywords(req: Request, res: Response) {
     try {
-        const { code } = req.body;
+      const { domain } = req.params;
+      const {userId} = req.headers;
+      const website = await this.prisma.website.findFirst({
+      });
+      
+      if (!website) {
+        return res.status(404).json({ error: 'Website not found' });
+      }
 
-        if (!code) {
-            res.status(400).json({ error: 'No authorization code provided' });
-            return;
-        }
-    
-        const googleService = createGoogleService();
-        const { user, token, googleToken, refreshToken } = await googleService.getTokenUserData(code);
-        res.status(200).json({ user, token, googleToken, refreshToken });
+      // Lógica para obtener keywords desde Search Console
+      res.json({ keywords: [] });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Failed to authenticate with Google' });        
+      res.status(500).json({ error: 'Error fetching keywords' });
     }
-};
-
-export const registerNewUser = async (req: Request, res: Response) => {
-  
+  }
 }
-
-
-export const getSearchConsoleData = async (req: Request, res: Response) => {
-  try {
-    const { googleToken, siteUrl, range, rowLimit } = req.body;
-    const googleService = createGoogleService();
-    googleService.setCredentials(googleToken);
-    const data = await googleService.getSearchConsoleData(siteUrl, range, rowLimit);
-
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch search console data', details: error });
-  }
-};
-
-export const getPageSpeedData = async (req: Request, res: Response) => {
-  try {
-    const { googleToken, siteUrl, strategy } = req.body;
-    const googleService = createGoogleService();
-    googleService.setCredentials(googleToken);
-    const data = await googleService.getPageSpeedInsights(siteUrl, strategy);
-
-    res.status(200).json(data);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch search console data', details: error });
-  }
-};

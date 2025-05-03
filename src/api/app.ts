@@ -1,8 +1,8 @@
 import express, { Application } from "express";
 import cors from "cors";
-import clientRoutes from './../routes/Client'
 import analyticsRoutes from './../routes/analyticsRoutes'
 import userRoutes from './../routes/User'
+import { DomainVerificationJob } from "../jobs/domainVerification.job";
 
 class Server {
     app: Application;
@@ -27,13 +27,15 @@ class Server {
         this.app.use(cors());
 
         this.app.use(express.json());
+        
+        const domainVerificationJob = new DomainVerificationJob();
+        domainVerificationJob.start();
 
         this.app.use(express.static('public'));
 
     }
 
     routes() {
-        this.app.use(this.routePath+'/client', clientRoutes);
         this.app.use(this.routePath+'/google', analyticsRoutes);
         this.app.use(this.routePath+'/user', userRoutes);
     }
