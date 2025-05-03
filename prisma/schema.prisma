@@ -25,6 +25,7 @@ model User {
   integrations       Integration[]
   dailyChatbotUsage  DailyChatbotUsage?
   planUsage          PlanUsage?
+  isProfileComplete  Boolean  @default(false) 
   enterpriseName     String? 
   websites           Website[]
 }

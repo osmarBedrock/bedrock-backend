@@ -74,7 +74,8 @@ export class AuthController {
     async googleAuth(req: Request, res: Response) {
         try {
             const url = this.googleService.getAuthUrl();
-            res.redirect(url);
+            console.log('url', url);
+            res.status(200).json({ url });
         } catch (error) {
             res.status(500).json({ error: 'Google auth failed' });
         }

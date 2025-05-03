@@ -28,10 +28,10 @@ export class GoogleApiService {
     this.searchConsole = google.searchconsole({ version: "v1", auth: this.oAuth2Client });
     this.analyticsData = google.analyticsdata({ version: 'v1beta', auth: this.oAuth2Client });
     this.PAGESPEED_API_KEY = process.env.GOOGLE_PAGESPEED_API_KEY || '';
-    this.siteVerification = google.siteVerification('v1');
+    this.siteVerification = google.siteVerification({version: 'v1', auth: this.oAuth2Client});
   }
 
-  public getAuthUrl(state?: string) {
+  public getAuthUrl() {
     const scopes = [
       "openid",
       'https://www.googleapis.com/auth/userinfo.email',
@@ -48,8 +48,7 @@ export class GoogleApiService {
     return this.oAuth2Client.generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
-      scope: scopes,
-      state: state || undefined
+      scope: scopes
     });
   }
 
@@ -72,7 +71,7 @@ export class GoogleApiService {
 
     const userInfo = await oauth2.userinfo.get();
     
-    // Obtener propiedades de Analytics asociadas
+    // Get associated Analytics properties
     const analytics = google.analytics('v3');
     const properties = await analytics.management.webproperties.list({
       accountId: '~all',
@@ -85,6 +84,7 @@ export class GoogleApiService {
       analyticsProperties: properties.data.items
     };
   }
+
   public async getAnalyticsDataV4(
     propertyId: string,
     requestBody: any
@@ -184,6 +184,7 @@ export class GoogleApiService {
         throw new Error('Failed to fetch Search Console data');
       }
   }
+
   private transformSearchConsoleData(data: any): SearchConsoleResponse {
     return {
       rows: data.rows?.map((row: any) => ({
@@ -221,13 +222,13 @@ export class GoogleApiService {
         console.log('tokens', tokens, tokens?.refresh_token );
         
         this.setCredentials(tokens);
-        // Obtener info básica del usuario
+        // Get basic user info
         const oauth2 = google.oauth2({ version: 'v2', auth: this.oAuth2Client });    
         const userInfo = await oauth2.userinfo.get();
         
-        // Verificación adicional para empresas
+        // Additional verification for companies
         if (!userInfo.data.hd) {
-          throw new Error('Se requiere cuenta corporativa');
+          throw new Error('Corporate account required');
         }
 
         const user = {
@@ -235,7 +236,8 @@ export class GoogleApiService {
           name: userInfo.data.name,
           picture: userInfo.data.picture,
           firstName: userInfo.data.given_name,
-          LastName: userInfo.data.family_name,
+          lastName: userInfo.data.family_name,
+          id: userInfo.data.id
         };
     
         // Generate token JWT
@@ -248,28 +250,55 @@ export class GoogleApiService {
     }
   }
   
-  public async verifyDomain(domain: string) {
+  public async verifyDomain(rawDomain: string) {
     try {
-      // 1. Agregar a Search Console
-      await this.searchConsole.sites.add({ siteUrl: domain });
+      // 1. Normalize domain
+      const domain = rawDomain
+        .replace(/^(https?:\/\/)?/i, '') // Delete protocol
+        .replace(/\/+$/i, '') // Delete final slashes
+        .toLowerCase(); // Force lowercase
   
-      // 2. Verificar propiedad vía DNS
+      // 2. Validate domain format  
+      if (!/^(?!-)[a-z0-9-]{1,63}(\.[a-z]{2,})+$/.test(domain)) {
+        throw new Error(`Invalid domain format: ${domain}`);
+      }
+  
+      // 3. Register domain in Search Console
+      await this.searchConsole.sites.add({
+        siteUrl: `sc-domain:${domain}`,
+        auth: this.oAuth2Client // Pass explicit authentication
+      });
+
+      const requestBody = {
+        site: {
+          identifier: domain,
+          type: 'INET_DOMAIN'
+        },
+        verificationMethod: 'DNS' // Correctly located in the requestBody
+      };
+      // 4. Get DNS verification token
       const verification = await this.siteVerification.webResource.getToken({
-        requestBody: { site: { identifier: domain, type: 'INET_DOMAIN' } }
+        requestBody, // Pass the entire body
+        auth: this.oAuth2Client // Required authentication
       });
   
+      // 5. Return data for DNS configuration
       return {
-        dnsRecord: `TXT ${domain} google-site-verification=${verification.data.token}`,
-        verificationUrl: `https://search.google.com/search-console?resource_id=${encodeURIComponent(domain)}`
+        dnsRecord: `TXT ${domain} "google-site-verification=${verification.data.token}"`,
+        verificationUrl: `https://search.google.com/search-console?resource_id=sc-domain:${domain}`
       };
-
-    } catch (error) {
-      console.error('Domain Verification Error:', error);
-      throw new Error('Error iniciando verificación');
+  
+    } catch (error: any) {
+      console.error('Verification error:', {
+        domain: rawDomain,
+        code: error.code,
+        errors: error.response?.data?.error?.errors
+      });
+      
+      throw new Error(`Error ${error.code}: ${error.message}`);
     }
   }
 
-  // Añadir en GoogleApiService.ts
   async getSearchConsoleSite(siteUrl: string): Promise<{ isVerified: boolean }> {
     try {
       const response = await this.searchConsole.sites.get({ siteUrl });
