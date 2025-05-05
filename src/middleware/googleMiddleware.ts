@@ -5,7 +5,8 @@ export const validateGoogleIntegration = async (req: Request, res: Response, nex
     const authController = new AuthController();
     const user = await authController.userWithIntegrations(req, res);
     if (user?.integrations.length === 0) {
-        return res.status(400).json({ error: 'Google integration required' });
+        res.status(400).json({ error: 'Google integration required' });
+        return;
     }
     req.body.user = user;
     next();

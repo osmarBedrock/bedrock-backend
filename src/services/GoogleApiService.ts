@@ -1,12 +1,8 @@
-import { google, pagespeedonline_v5, searchconsole_v1, analyticsdata_v1beta, siteVerification_v1 } from 'googleapis';
-import { format, sub } from "date-fns";
+import { google, pagespeedonline_v5, searchconsole_v1, analyticsdata_v1beta, siteVerification_v1, analyticsadmin_v1alpha } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import { ReportBodyOptions, reportWithOrderBy } from '../constants/ReportBodyOptions';
-import { buildReportBody } from '../helpers/analytics';
-import { Range, ResponsePageSpeed, SearchConsoleResponse } from '../interfaces/analytics';
-import { searchConsoleDataDummy } from '../constant/data-dummy';
-import { LighthousePerformanceWeights } from '../enum/performance.enum';
+import { ResponsePageSpeed, SearchConsoleResponse } from '../interfaces/analytics';
 import { SearchConsoleQueryRequest } from '../dtos/searchConsole';
 import { TokenResponse } from 'google-auth-library/build/src/auth/impersonated';
 import { PrismaClient } from '@prisma/client';
@@ -15,10 +11,11 @@ export class GoogleApiService {
 
   private readonly oAuth2Client: OAuth2Client;
   private readonly pageSpeed: pagespeedonline_v5.Pagespeedonline;
-  private readonly searchConsole: searchconsole_v1.Searchconsole;
-  private readonly analyticsData: analyticsdata_v1beta.Analyticsdata;
-  private siteVerification: siteVerification_v1.Siteverification;
   private readonly PAGESPEED_API_KEY: string;
+  private searchConsole: searchconsole_v1.Searchconsole;
+  private analyticsData: analyticsdata_v1beta.Analyticsdata;
+  private siteVerification: siteVerification_v1.Siteverification;
+  private analyticsAdmin: analyticsadmin_v1alpha.Analyticsadmin
   private prisma: PrismaClient;
 
   constructor(clientId: string, clientSecret: string, redirectUri: string) {
@@ -29,6 +26,8 @@ export class GoogleApiService {
     this.analyticsData = google.analyticsdata({ version: 'v1beta', auth: this.oAuth2Client });
     this.PAGESPEED_API_KEY = process.env.GOOGLE_PAGESPEED_API_KEY || '';
     this.siteVerification = google.siteVerification({version: 'v1', auth: this.oAuth2Client});
+    this.analyticsAdmin = google.analyticsadmin({version: 'v1alpha', auth: this.oAuth2Client});
+
   }
 
   public getAuthUrl() {
@@ -52,8 +51,27 @@ export class GoogleApiService {
     });
   }
 
-  public setCredentials(tokens: any) {
+  public setCredentials(tokens: any): void {
     this.oAuth2Client.setCredentials(tokens);
+    
+    this.searchConsole = google.searchconsole({
+      version: 'v1',
+      auth: this.oAuth2Client
+    });
+    
+    this.analyticsData = google.analyticsdata({
+      version: 'v1beta',
+      auth: this.oAuth2Client
+    });
+    
+    this.siteVerification = google.siteVerification({
+      version: 'v1',
+      auth: this.oAuth2Client
+    });
+
+    this.analyticsAdmin = google.analyticsadmin({
+      version: 'v1alpha', auth: this.oAuth2Client
+    });
   }
 
   public async getToken(code: string):Promise<{
@@ -200,26 +218,32 @@ export class GoogleApiService {
 
   public async getAnalyticsData(
     propertyId: string,
-    requestBody: analyticsdata_v1beta.Params$Resource$Properties$Runreport
+    requestBody: any
   ): Promise<analyticsdata_v1beta.Schema$RunReportResponse> {
     try {
+      console.log('propertyId', propertyId)
+      // Validar propertyId
+      if (!propertyId.match(/^\d+$/)) {
+        throw new Error("Invalid propertyId format. It must be numeric.");
+      }
+      console.log('propertyId,requestBody', propertyId,requestBody)
       const response = await this.analyticsData.properties.runReport({
         property: `properties/${propertyId}`,
         requestBody
       });
+
+      console.log('API response:', JSON.stringify(response.data, null, 2));
       
       return response.data;
     } catch (error: any) {
-      console.error('Analytics Data API Error:', error.message);
-      throw new Error('Failed to fetch Analytics data');
+      console.error('Analytics Data API Error:', error.message, error);
+      throw new Error(error);
     }
   }
 
   public async getTokenUserData(code: string){
     try {
         const { tokens } = await this.oAuth2Client.getToken(code);
-        
-        console.log('tokens', tokens, tokens?.refresh_token );
         
         this.setCredentials(tokens);
         // Get basic user info
@@ -243,7 +267,7 @@ export class GoogleApiService {
         // Generate token JWT
         const token = jwt.sign(user, process.env.JWT_SECRET!, { expiresIn: '1h' });
     
-        return { user, token, googleToken: tokens.access_token, refreshToken: tokens.refresh_token };
+        return { user, token, googleToken: tokens.access_token, refreshToken: tokens.refresh_token, expiresAt: tokens.expiry_date };
     } catch (error) {
         console.error(error);
         throw new Error('Failed to authenticate with Google');
@@ -331,50 +355,50 @@ export class GoogleApiService {
     return credentials;
   }
   
-  async _refreshAccessToken() {
-    // if (!this.oAuth2Client.credentials.refresh_token) {
-    //   throw new Error('No refresh token available to refresh the access token');
-    // }
+  public async getGA4PropertyId(domain: string): Promise<string> {
+    try {
+      // 1. Normalize domain
+      const cleanDomain = this.normalizeDomain(domain);
+
+      // 2. List all GA4 properties of the user
+      const { data } = await this.analyticsAdmin.accountSummaries.list();
+
+      // 3. Search for the property that matches the domain
+      const allProperties = data.accountSummaries?.flatMap(acc => 
+        acc.propertySummaries || []
+      ) || [];
+
+      console.log('allProperties', cleanDomain)
+      const matchedProperty = allProperties.find(p => {
+        const displayName = p.displayName?.toLowerCase() || '';
+        return displayName.includes(cleanDomain) || 
+               cleanDomain.includes(displayName);
+      });
+      console.log('matchedProperty', matchedProperty)
+
+      if (!matchedProperty?.property) {
+        throw new Error(`No GA4 property found for ${cleanDomain}`);
+      }
+
+      return matchedProperty.property.replace('properties/', '');
+    } catch (error) {
+      console.error('Error getting Property ID:', error);
+      throw new Error('Failed to get Analytics property ID');
+    }
+  }
   
-    const { credentials } = await this.oAuth2Client.refreshAccessToken();
-    return credentials.refresh_token;
+  private extractDomainFromDisplayName(displayName: string): string {
+    // Extract possible domains from the displayName
+    const domainMatch = displayName.match(/(?:https?:\/\/)?([a-z0-9-]+\.[a-z]{2,})/i);
+    console.log('domainMatch', domainMatch, displayName)
+    return domainMatch ? this.normalizeDomain(domainMatch[1]) : '';
   }
 
-  public getBodyAnalytics(range: Range, metrics: string[], dimensions: string[], isRealTime: boolean = false, keepEmptyRows: boolean = false): ReportBodyOptions {
-    const { startDate, endDate } = this.getDateRange(range);
-    return buildReportBody({startDate, endDate, range, metrics, dimensions, keepEmptyRows}, isRealTime);
-  }
-  
-  private getDateRange(range: string): { startDate: string, endDate: string } {
-    let startDate = "yesterday";
-    const endDate = "yesterday";
-    let yesterday = sub(new Date(), { days: 1 });
-  
-    switch (range) {
-      case "day": {
-        startDate = "2daysAgo";
-        break;
-      }
-      case "week": {
-        startDate = "7daysAgo";
-        break;
-      }
-      case "month": {
-        startDate = "30daysAgo";
-        break;
-      }
-      case "quarter": {
-        let start = sub(yesterday, { days: 89 });
-        startDate = format(start, "yyyy-MM-dd");
-        break;
-      }
-      default: {
-        startDate = "7daysAgo";
-        break;
-      }
-    }
-  
-    return { startDate, endDate };
+  private normalizeDomain(domain: string): string {
+    return domain
+      .replace(/^(https?:\/\/)?/i, '')
+      .replace(/\/+$/i, '')
+      .toLowerCase();
   }
 
   public async getPageSpeedInsights(

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { GoogleApiService } from '../services/GoogleApiService';
 import jwt from 'jsonwebtoken';
-import { hash, compare } from 'bcrypt';
+import { hash } from 'bcrypt';
 import { PlanType, PrismaClient } from '@prisma/client';
 import { PrismaClientSingleton } from '../database/config';
 import { EmailService } from '../services/EmailService';
@@ -130,6 +130,10 @@ export class AuthController {
 
             const user = await this.prisma.user.findUnique({
                 where: { email: email as string },
+                include: {
+                    websites: true,
+                    integrations: { where: { service: 'google' } }
+                }
             });
             return user;
         } catch (error) {
@@ -139,7 +143,7 @@ export class AuthController {
     }
     async userWithIntegrations(req: Request, res: Response) {
         try {
-            const userId = parseInt(req.headers.userId as string);
+            const userId = parseInt(req.headers.userid as string);
             const user = await this.prisma.user.findUnique({
                 where: { id: userId },
                 include: { 

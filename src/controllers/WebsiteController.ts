@@ -1,9 +1,11 @@
 import { Request, Response } from 'express';
-import { GoogleApiService } from '../services/GoogleApiService';
+import { analyticsdata_v1beta } from 'googleapis';
+
 import { Integration, PrismaClient } from '@prisma/client';
+import { GoogleApiService } from '../services/GoogleApiService';
 import { PrismaClientSingleton } from '../database/config';
 import { SearchConsoleQueryRequest } from '../dtos/searchConsole';
-import { User } from '@prisma/client';
+import { buildReportBody, getDateRange } from '../helpers/analytics';
 export class WebsiteController {
   private googleService: GoogleApiService;
   private prisma: PrismaClient;
@@ -50,19 +52,49 @@ export class WebsiteController {
 
   async getWebsiteData(req: Request, res: Response) {
     try {
-        const { domain } = req.params;
+        const { rowLimit, range, user }: any = req.body;
+        const { startDate, endDate } = getDateRange(range);
+        const { accessToken, refreshToken, expiresAt } = user.integrations[0];
+
         const request: SearchConsoleQueryRequest = {
-            startDate: '30daysAgo',
-            endDate: 'today',
+            startDate,
+            endDate,
             dimensions: ['query'],
-            rowLimit: 100
+            rowLimit
         };
+        const tokens = {
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            expiry_date: new Date(expiresAt).getTime(),
+        }
+        this.googleService.setCredentials(tokens)
         const data = await this.googleService.getSearchConsoleData(
-            domain,request
+            user.websites[0].domain,request
         );
         res.json(data);
     } catch (error) {
-        res.status(500).json({ error: 'Error fetching website data' });
+        res.status(500).json({ error, msg: 'Error fetching website data' });
+    }
+  }
+
+  async getAnalyticsWebsiteData(req: Request, res: Response) {
+    try{
+        const { range, metric, dimensions, isRealTime, keepEmptyRows, user } = req.body;
+        
+        const { startDate, endDate } = getDateRange(range);
+        const requestBody: any = buildReportBody({startDate, endDate, range, metrics: metric, dimensions, keepEmptyRows}, isRealTime);
+        const { accessToken, refreshToken, expiresAt } = user.integrations[0];
+        const tokens = {
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            expiry_date: new Date(expiresAt).getTime(),
+        }
+        this.googleService.setCredentials(tokens);
+        const { propertyId } = user.websites[0];
+        const data = await this.googleService.getAnalyticsData(propertyId,requestBody)
+        res.status(200).json(data)
+    }catch(error){
+        res.status(500).json({error, msg: 'Error fetching analytics data'})
     }
   }
 

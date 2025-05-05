@@ -12,6 +12,7 @@ model User {
   id                 Int       @id @default(autoincrement())
   firstName          String?
   lastName           String?
+  avatar             String?
   email              String    @unique
   passwordHash       String?
   googleId           String?   @unique
@@ -27,6 +28,7 @@ model User {
   planUsage          PlanUsage?
   isProfileComplete  Boolean  @default(false) 
   enterpriseName     String? 
+  enterprisePicture  String? 
   websites           Website[]
 }
 
@@ -40,6 +42,7 @@ enum PlanType {
 model Website {
   id                 Int       @id @default(autoincrement())
   domain             String
+  propertyId         String?
   verificationCode   String?
   isVerified         Boolean   @default(false)
   userId             Int

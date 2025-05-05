@@ -22,7 +22,7 @@ export class IntegrationController {
   async connectGoogle(req: Request, res: Response) {
     try {
         const { code } = req.query;
-        const { googleToken, refreshToken, user: googleUser } = await this.googleService.getTokenUserData(code as string);
+        const { googleToken, refreshToken, user: googleUser, expiresAt } = await this.googleService.getTokenUserData(code as string);
         
         let user = await this.prisma.user.findUnique({ where: { email: googleUser.email }});
 
@@ -46,23 +46,17 @@ export class IntegrationController {
             update: { 
                 accessToken: googleToken ?? '',
                 refreshToken: refreshToken ?? '' ,
-                expiresAt: new Date(Date.now() + 3600 * 1000)
+                expiresAt: expiresAt ? new Date(expiresAt) : new Date()
             },
             create: {
                 userId: user?.id ?? 0,
                 service: 'google',
                 accessToken: googleToken ?? '',
                 refreshToken: refreshToken ?? '',
-                expiresAt: new Date(Date.now() + 3600 * 1000)
+                expiresAt: expiresAt ? new Date(expiresAt) : new Date()
             }
         });
 
-        if (!user.isProfileComplete) {
-            // const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, { expiresIn: '10m' });
-            // res.redirect(`/complete-profile?token=${token}`);
-            return;
-        }
-      
         const website = await this.prisma.website.findFirst({
             where: { userId: user?.id ?? 0 }
         });
@@ -72,6 +66,7 @@ export class IntegrationController {
 
         if (website) {
             verificationData = await this.googleService.verifyDomain(website.domain);
+            const propertyId = await this.googleService.getGA4PropertyId(website.domain);
 
             updatedWebsite = await this.prisma.website.update({
               where: { id: website.id },
@@ -79,11 +74,12 @@ export class IntegrationController {
                 googleAccessToken: googleToken,
                 googleRefreshToken: refreshToken,
                 verificationCode: verificationData.dnsRecord.split('=')[1],
-                isVerified: false // Resetear hasta nueva verificación
+                propertyId,
+                isVerified: false // Reset until new verification
               }
             });
       
-            // 6. Enviar email con instrucciones
+            // 6. Send email with instructions
             // await this.emailService.sendVerificationEmail(
             //     user!.email,
             //     website.domain,
@@ -91,7 +87,7 @@ export class IntegrationController {
             // );
         }
       
-        res.status(200).json({ message: 'Google account connected successfully', integration, website, updatedWebsite, verificationData });
+        res.status(200).json({ message: 'Google account connected successfully', integration, website: updatedWebsite, verificationData, user });
     } catch (error) {
         res.status(500).json({ error: 'Google integration failed' });
     }
