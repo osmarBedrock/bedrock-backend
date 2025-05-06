@@ -1,9 +1,33 @@
-import express from 'express';
-import { ClientController } from '../controllers/users';
-
+import express, { Request, Response } from 'express';
+import { validateEmail, validateExistEmail, validateExistUser, validateUser } from '../middleware/authMiddleware';
+import { AuthController } from '../controllers/AuthController';
+import { IntegrationController } from '../controllers/IntegrationController';
 const router = express.Router();
+const authController = new AuthController();
+const integrationController = new IntegrationController();
 
-router.get('/', ClientController.getClientByEmail);
-router.patch('/:id', ClientController.updateClient);
-
+router.post(
+    '/signup', 
+    validateExistEmail, 
+    (req: Request, res: Response) => authController.register(req, res) 
+);
+router.post(
+    '/signin',
+    validateEmail,
+    validateUser, 
+    (req: Request, res: Response) => authController.login(req, res) 
+);
+router.get(
+    '/google/auth',
+    (req: Request, res: Response) => authController.googleAuth(req, res)
+);
+router.get(
+    '/google/callback',
+    (req: Request, res: Response) => integrationController.connectGoogle(req, res)
+);
+router.patch(
+    '/profile/:id',
+    validateExistUser,
+    (req: Request, res: Response) => authController.updateProfile(req, res)
+);
 export default router;

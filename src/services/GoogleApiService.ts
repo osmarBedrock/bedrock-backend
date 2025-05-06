@@ -1,29 +1,33 @@
-import { google, pagespeedonline_v5, searchconsole_v1 } from 'googleapis';
-import { format, sub } from "date-fns";
+import { google, pagespeedonline_v5, searchconsole_v1, analyticsdata_v1beta, siteVerification_v1, analyticsadmin_v1alpha } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import { ReportBodyOptions, reportWithOrderBy } from '../constants/ReportBodyOptions';
-import { buildReportBody } from '../helpers/analytics';
-import { Range, ResponsePageSpeed } from '../interfaces/analytics';
-import { searchConsoleDataDummy } from '../constant/data-dummy';
-import { LighthousePerformanceWeights } from '../enum/performance.enum';
-
+import { ResponsePageSpeed, SearchConsoleResponse } from '../interfaces/analytics';
+import { SearchConsoleQueryRequest } from '../dtos/searchConsole';
+import { TokenResponse } from 'google-auth-library/build/src/auth/impersonated';
+import { PrismaClient } from '@prisma/client';
+import { PrismaClientSingleton } from '../database/config';
 export class GoogleApiService {
 
-  private PAGESPEED_API_KEY: string;
-  protected oAuth2Client: OAuth2Client;
-  protected pageSpeed: pagespeedonline_v5.Pagespeedonline;
-  protected searchConsole: searchconsole_v1.Searchconsole; 
-
+  private readonly oAuth2Client: OAuth2Client;
+  private readonly pageSpeed: pagespeedonline_v5.Pagespeedonline;
+  private readonly PAGESPEED_API_KEY: string;
+  private searchConsole: searchconsole_v1.Searchconsole;
+  private analyticsData: analyticsdata_v1beta.Analyticsdata;
+  private siteVerification: siteVerification_v1.Siteverification;
+  private analyticsAdmin: analyticsadmin_v1alpha.Analyticsadmin
+  private prisma: PrismaClient;
 
   constructor(clientId: string, clientSecret: string, redirectUri: string) {
-    console.log('constructopr', clientId,
-      clientSecret,
-      redirectUri)
+    this.prisma = PrismaClientSingleton.getInstance();
     this.oAuth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
     this.pageSpeed = google.pagespeedonline("v5");
-    this.PAGESPEED_API_KEY = process.env.GOOGLE_PAGESPEED_API_KEY || '';
     this.searchConsole = google.searchconsole({ version: "v1", auth: this.oAuth2Client });
+    this.analyticsData = google.analyticsdata({ version: 'v1beta', auth: this.oAuth2Client });
+    this.PAGESPEED_API_KEY = process.env.GOOGLE_PAGESPEED_API_KEY || '';
+    this.siteVerification = google.siteVerification({version: 'v1', auth: this.oAuth2Client});
+    this.analyticsAdmin = google.analyticsadmin({version: 'v1alpha', auth: this.oAuth2Client});
+
   }
 
   public getAuthUrl() {
@@ -38,20 +42,127 @@ export class GoogleApiService {
       "https://www.googleapis.com/auth/analytics.readonly",
       "https://www.googleapis.com/auth/analytics.manage.users",
       "https://www.googleapis.com/auth/analytics.manage.users.readonly",
+      'https://www.googleapis.com/auth/siteverification'
     ];
     return this.oAuth2Client.generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
-      scope: scopes,
+      scope: scopes
     });
   }
 
-  public setCredentials(tokens: any) {
+  public setCredentials(tokens: any): void {
     this.oAuth2Client.setCredentials(tokens);
+    
+    this.searchConsole = google.searchconsole({
+      version: 'v1',
+      auth: this.oAuth2Client
+    });
+    
+    this.analyticsData = google.analyticsdata({
+      version: 'v1beta',
+      auth: this.oAuth2Client
+    });
+    
+    this.siteVerification = google.siteVerification({
+      version: 'v1',
+      auth: this.oAuth2Client
+    });
+
+    this.analyticsAdmin = google.analyticsadmin({
+      version: 'v1alpha', auth: this.oAuth2Client
+    });
   }
 
-  public getToken() {
-    return this.oAuth2Client.refreshAccessToken()
+  public async getToken(code: string):Promise<{
+    tokens: any;
+    userInfo: any;
+    analyticsProperties?: any[];
+  }>  {
+    const { tokens } = await this.oAuth2Client.getToken(code);
+    this.oAuth2Client.setCredentials(tokens);
+
+    const oauth2 = google.oauth2({
+      auth: this.oAuth2Client,
+      version: 'v2'
+    });
+
+    const userInfo = await oauth2.userinfo.get();
+    
+    // Get associated Analytics properties
+    const analytics = google.analytics('v3');
+    const properties = await analytics.management.webproperties.list({
+      accountId: '~all',
+      auth: this.oAuth2Client
+    });
+
+    return {
+      tokens,
+      userInfo: userInfo.data,
+      analyticsProperties: properties.data.items
+    };
+  }
+
+  public async getAnalyticsDataV4(
+    propertyId: string,
+    requestBody: any
+  ): Promise<analyticsdata_v1beta.Schema$RunReportResponse> {
+    try {
+      const response = await this.analyticsData.properties.runReport({
+        property: `properties/${propertyId}`,
+        requestBody: {
+          dateRanges: requestBody.dateRanges,
+          dimensions: requestBody.dimensions,
+          metrics: requestBody.metrics,
+          dimensionFilter: requestBody.dimensionFilter,
+          metricFilter: requestBody.metricFilter,
+          limit: requestBody.limit?.toString(),
+          offset: requestBody.offset?.toString(),
+          orderBys: requestBody.orderBys,
+          keepEmptyRows: requestBody.keepEmptyRows
+        }
+      });
+  
+      return this.transformAnalyticsData(response.data);
+    } catch (error: any) {
+      console.error('Analytics API Error:', error.message);
+      throw new Error('Failed to fetch analytics data');
+    }
+  }
+  
+  private transformAnalyticsData(data: any) {
+    return {
+      rows: data.rows?.map((row: any) => ({
+        dimensionValues: row.dimensionValues?.map((d: any) => d.value) || [],
+        metricValues: row.metricValues?.map((m: any) => m.value) || []
+      })) || [],
+      totals: data.totals?.[0]?.metricValues?.map((m: any) => m.value) || [],
+      rowCount: data.rowCount || 0
+    };
+  }
+
+  public async refreshAccessToken(): Promise<TokenResponse> {
+    try {
+      const { credentials } = await this.oAuth2Client.refreshAccessToken();
+      return {
+        accessToken: credentials.access_token || '',
+        expireTime: credentials.expiry_date ? 
+          Math.round((credentials.expiry_date - Date.now()) / 1000).toString() : '3600'
+      };
+    } catch (error: any) {
+      console.error('Token Refresh Error:', error.message);
+      throw new Error('Failed to refresh access token');
+    }
+  }
+  
+  public async revokeToken(accessToken: string): Promise<void> {
+    try {
+      await this.oAuth2Client.revokeToken(accessToken);
+      console.log('Token revoked successfully');
+    } catch (error: any) {
+      console.error('Token Revocation Error:', error.message);
+      throw new Error('Failed to revoke token');
+    }
   }
 
   public async getAnalyticsDataV3(viewId: string, data: ReportBodyOptions = reportWithOrderBy, isRealTime: boolean = false) {
@@ -71,231 +182,269 @@ export class GoogleApiService {
     }
   }
 
-  public async getSearchConsoleData(siteUrl: string, range: Range, rowLimit: number) {
-    // try {
-    //   // Verificar si el usuario ya tiene acceso
-    //   const res = await this.searchConsole.sites.list({});
-    //   const hasAccess = res.data.siteEntry?.some((site: any) => site.siteUrl === siteUrl);
-    //   console.log(res.data);
-
-    //   if (hasAccess) {
-    //     console.log(`✅ El usuario ya tiene acceso a ${siteUrl}`);
-    //     return { message: `El usuario ya tiene acceso a ${siteUrl}` };
-    //   }
-
-    //   // Agregar al usuario automáticamente si no tiene acceso
-    //   await this.searchConsole.sites.adduser({
-    //     siteUrl,
-    //     requestBody: {
-    //       permissionLevel: "siteFullUser", // Puede ser "siteFullUser" o "siteOwner"
-    //       emailAddress: userEmail,
-    //     },
-    //   });
-
-    //   // console.log(`✅ Usuario ${userEmail} agregado con éxito a ${siteUrl}`);
-    //   return { message: `Usuario  agregado a ${siteUrl}` ,data: res.data};
-    // } catch (error) {
-    //   console.error("❌ Error al agregar usuario:", error);
-    //   throw new Error("Failed to add user to Search Console");
-    // }
-    const { startDate, endDate } = this.getDateRange(range);
-    try {
-        const url = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`;
-        const response = 
-        // await this.oAuth2Client.request<any>({
-        //   url,
-        //   method: 'POST',
-        //   data: {
-        //     startDate,
-        //     endDate,
-        //     dimensions: ['query'],
-        //     rowLimit,
-        //     type: "web",
-        //   },
-        // });
-        searchConsoleDataDummy; 
-    
-        return response;
-    } catch (error) {
-        console.error('Error fetching Search Console data:', error);
+  public async getSearchConsoleData(siteUrl: string,request: SearchConsoleQueryRequest) {
+      try {
+        const response = await this.searchConsole.searchanalytics.query({
+          siteUrl,
+          requestBody: {
+            startDate: request.startDate,
+            endDate: request.endDate,
+            dimensions: request.dimensions,
+            dimensionFilterGroups: request.filters,
+            rowLimit: request.rowLimit,
+            aggregationType: request.aggregationType
+          }
+        });
+  
+        return this.transformSearchConsoleData(response.data);
+      } catch (error: any) {
+        console.error('Search Console API Error:', error.message);
         throw new Error('Failed to fetch Search Console data');
+      }
+  }
+
+  private transformSearchConsoleData(data: any): SearchConsoleResponse {
+    return {
+      rows: data.rows?.map((row: any) => ({
+        keys: row.keys,
+        clicks: row.clicks,
+        impressions: row.impressions,
+        ctr: row.ctr,
+        position: row.position
+      })) || [],
+      aggregationType: data.aggregationType
+    };
+  }
+
+  public async getAnalyticsData(
+    propertyId: string,
+    requestBody: any
+  ): Promise<analyticsdata_v1beta.Schema$RunReportResponse> {
+    try {
+      console.log('propertyId', propertyId)
+      // Validar propertyId
+      if (!propertyId.match(/^\d+$/)) {
+        throw new Error("Invalid propertyId format. It must be numeric.");
+      }
+      console.log('propertyId,requestBody', propertyId,requestBody)
+      const response = await this.analyticsData.properties.runReport({
+        property: `properties/${propertyId}`,
+        requestBody
+      });
+
+      console.log('API response:', JSON.stringify(response.data, null, 2));
+      
+      return response.data;
+    } catch (error: any) {
+      console.error('Analytics Data API Error:', error.message, error);
+      throw new Error(error);
     }
   }
 
   public async getTokenUserData(code: string){
     try {
-      console.log('--->code  ',code)
         const { tokens } = await this.oAuth2Client.getToken(code);
         
-        console.log('tokens', tokens, tokens?.refresh_token );
-        
         this.setCredentials(tokens);
-        const { access_token: googleToken } = tokens;
-    
-        const oauth2 = google.oauth2({
-          auth: this.oAuth2Client,
-          version: 'v2',
-        });
-    
+        // Get basic user info
+        const oauth2 = google.oauth2({ version: 'v2', auth: this.oAuth2Client });    
         const userInfo = await oauth2.userinfo.get();
-        // {
-        //   "id": "clx9qmb4d0001cc45tbpsbqu7",
-        //   "name": "Prestige Oral and Facial Surgery",
-        //   "gaPropertyId": "413032710",
-        //   "gscSiteUrl": "sc-domain:prestigesurgery.com"
-        // }
-        // const analytics = await this.getAnalyticsDataV3('413032710')
-        // const searchConsole = await this.getSearchConsoleData("sc-domain:prestigesurgery.com","7daysAgo","yesterday")
         
+        // Additional verification for companies
+        if (!userInfo.data.hd) {
+          throw new Error('Corporate account required');
+        }
+
         const user = {
-          email: userInfo.data.email,
+          email: userInfo.data.email!,
           name: userInfo.data.name,
           picture: userInfo.data.picture,
           firstName: userInfo.data.given_name,
-          LastName: userInfo.data.family_name,
+          lastName: userInfo.data.family_name,
+          id: userInfo.data.id
         };
     
         // Generate token JWT
         const token = jwt.sign(user, process.env.JWT_SECRET!, { expiresIn: '1h' });
     
-        const refreshToken = await this._refreshAccessToken();
-        return { user, token, googleToken, refreshToken };
+        return { user, token, googleToken: tokens.access_token, refreshToken: tokens.refresh_token, expiresAt: tokens.expiry_date };
     } catch (error) {
         console.error(error);
         throw new Error('Failed to authenticate with Google');
     }
   }
+  
+  public async verifyDomain(rawDomain: string) {
+    try {
+      // 1. Normalize domain
+      const domain = rawDomain
+        .replace(/^(https?:\/\/)?/i, '') // Delete protocol
+        .replace(/\/+$/i, '') // Delete final slashes
+        .toLowerCase(); // Force lowercase
+  
+      // 2. Validate domain format  
+      if (!/^(?!-)[a-z0-9-]{1,63}(\.[a-z]{2,})+$/.test(domain)) {
+        throw new Error(`Invalid domain format: ${domain}`);
+      }
+  
+      // 3. Register domain in Search Console
+      await this.searchConsole.sites.add({
+        siteUrl: `sc-domain:${domain}`,
+        auth: this.oAuth2Client // Pass explicit authentication
+      });
 
+      const requestBody = {
+        site: {
+          identifier: domain,
+          type: 'INET_DOMAIN'
+        },
+        verificationMethod: 'DNS' // Correctly located in the requestBody
+      };
+      // 4. Get DNS verification token
+      const verification = await this.siteVerification.webResource.getToken({
+        requestBody, // Pass the entire body
+        auth: this.oAuth2Client // Required authentication
+      });
   
-  async _refreshAccessToken() {
-    // if (!this.oAuth2Client.credentials.refresh_token) {
-    //   throw new Error('No refresh token available to refresh the access token');
-    // }
+      // 5. Return data for DNS configuration
+      return {
+        dnsRecord: `TXT ${domain} "google-site-verification=${verification.data.token}"`,
+        verificationUrl: `https://search.google.com/search-console?resource_id=sc-domain:${domain}`,
+        token: verification.data.token
+      };
   
-    const { credentials } = await this.oAuth2Client.refreshAccessToken();
-    return credentials;
-  }
-
-  public getBodyAnalytics(range: Range, metrics: string[], dimensions: string[], isRealTime: boolean = false, keepEmptyRows: boolean = false): ReportBodyOptions {
-    const { startDate, endDate } = this.getDateRange(range);
-    return buildReportBody({startDate, endDate, range, metrics, dimensions, keepEmptyRows}, isRealTime);
-  }
-  
-  private getDateRange(range: string): { startDate: string, endDate: string } {
-    let startDate = "yesterday";
-    const endDate = "yesterday";
-    let yesterday = sub(new Date(), { days: 1 });
-  
-    switch (range) {
-      case "day": {
-        startDate = "2daysAgo";
-        break;
-      }
-      case "week": {
-        startDate = "7daysAgo";
-        break;
-      }
-      case "month": {
-        startDate = "30daysAgo";
-        break;
-      }
-      case "quarter": {
-        let start = sub(yesterday, { days: 89 });
-        startDate = format(start, "yyyy-MM-dd");
-        break;
-      }
-      default: {
-        startDate = "7daysAgo";
-        break;
-      }
+    } catch (error: any) {
+      console.error('Verification error:', {
+        domain: rawDomain,
+        code: error.code,
+        errors: error.response?.data?.error?.errors
+      });
+      
+      throw new Error(`Error ${error.code}: ${error.message}`);
     }
-  
-    return { startDate, endDate };
   }
 
-  public async getPageSpeedInsights(url: string, strategy: "desktop" | "mobile" = "desktop") {
-  try {
+  async getSearchConsoleSite(siteUrl: string): Promise<{ isVerified: boolean }> {
+    try {
+      const response = await this.searchConsole.sites.get({ siteUrl });
+      return {
+        isVerified: response.data?.siteUrl?.includes('sc-domain:') || false
+      };
+    } catch (error: any) {
+      if (error.code === 404) return { isVerified: false };
+      throw error;
+    }
+  }
 
-    const { data }: any = await this.pageSpeed.pagespeedapi.runpagespeed({
-      url,
-      strategy, // Puede ser "desktop" o "mobile"
-      key: this.PAGESPEED_API_KEY,
-      category: ["performance", "accessibility", "best-practices", "seo", "pwa"],
+  async refreshAndUpdateTokens(userId: string) {
+    const integration = await this.prisma.integration.findUnique({
+      where: { userId_service: { userId: parseInt(userId), service: 'google' } }
     });
 
-    const responsePageSpeed: ResponsePageSpeed = data;
-    const audits = responsePageSpeed.lighthouseResult.audits;
+    if (!integration) throw new Error('No Google integration found');
+
+    const credentials = await this.refreshAccessToken();
     
-    const response = {
-      metrics: {
-        performance: {
-          score: responsePageSpeed.lighthouseResult.categories.performance.score * 100,
-          title:  responsePageSpeed.lighthouseResult.categories.performance.title
-        },
-        speedIndex: {
-          description: audits['speed-index'].description,
-          time: audits["speed-index"].displayValue,
-          title: audits['speed-index'].title,
-          penalty: this.calculatePenalty(audits['speed-index'].score,'SPEED_INDEX'),
-          metricScore: audits['speed-index'].score
-        },
-        firstContentfulPaint: {
-          description: audits['first-contentful-paint'].description,
-          time: audits["first-contentful-paint"].displayValue,
-          title: audits['first-contentful-paint'].title,
-          penalty: this.calculatePenalty(audits['first-contentful-paint'].score || 0,'FIRST_CONTENTFUL_PAINT'),
-          metricScore: audits['first-contentful-paint'].score
-        },
-        largestContentfulPaint: {
-          description: audits['largest-contentful-paint'].description,
-          time: audits["largest-contentful-paint"].displayValue,
-          title: audits['largest-contentful-paint'].title,          
-          penalty: this.calculatePenalty(audits['largest-contentful-paint'].score || 0,'LARGEST_CONTENTFUL_PAINT'),
-          metricScore: audits['largest-contentful-paint'].score
-        },
-        cumulativeLayoutShift: {
-          description: audits['cumulative-layout-shift'].description,
-          time: audits["cumulative-layout-shift"].displayValue,
-          title: audits['cumulative-layout-shift'].title,          
-          penalty: this.calculatePenalty(audits['cumulative-layout-shift'].score || 0,'CUMULATIVE_LAYOUT_SHIFT'),
-          metricScore: audits['cumulative-layout-shift'].score
-        },
-        totalBlockingTime: {
-          description: audits['total-blocking-time'].description,
-          time: audits["total-blocking-time"].displayValue,
-          title: audits['total-blocking-time'].title,          
-          penalty: this.calculatePenalty(audits['total-blocking-time'].score || 0,'TOTAL_BLOCKING_TIME'),
-          metricScore: audits['total-blocking-time'].score
+    await this.prisma.integration.update({
+      where: { id: integration.id },
+      data: {
+        accessToken: credentials.accessToken,
+        expiresAt: new Date(Date.now() + (Number(credentials.expireTime) || 3600 * 1000))
+      }
+    });
+
+    return credentials;
+  }
+  
+  public async getGA4PropertyId(domain: string): Promise<string> {
+    try {
+      // 1. Normalize domain
+      const cleanDomain = this.normalizeDomain(domain);
+
+      // 2. List all GA4 properties of the user
+      const { data } = await this.analyticsAdmin.accountSummaries.list();
+
+      // 3. Search for the property that matches the domain
+      const allProperties = data.accountSummaries?.flatMap(acc => 
+        acc.propertySummaries || []
+      ) || [];
+
+      console.log('allProperties', cleanDomain)
+      const matchedProperty = allProperties.find(p => {
+        const displayName = p.displayName?.toLowerCase() || '';
+        return displayName.includes(cleanDomain) || 
+               cleanDomain.includes(displayName);
+      });
+      console.log('matchedProperty', matchedProperty)
+
+      if (!matchedProperty?.property) {
+        throw new Error(`No GA4 property found for ${cleanDomain}`);
+      }
+
+      return matchedProperty.property.replace('properties/', '');
+    } catch (error) {
+      console.error('Error getting Property ID:', error);
+      throw new Error('Failed to get Analytics property ID');
+    }
+  }
+  
+  private extractDomainFromDisplayName(displayName: string): string {
+    // Extract possible domains from the displayName
+    const domainMatch = displayName.match(/(?:https?:\/\/)?([a-z0-9-]+\.[a-z]{2,})/i);
+    console.log('domainMatch', domainMatch, displayName)
+    return domainMatch ? this.normalizeDomain(domainMatch[1]) : '';
+  }
+
+  private normalizeDomain(domain: string): string {
+    return domain
+      .replace(/^(https?:\/\/)?/i, '')
+      .replace(/\/+$/i, '')
+      .toLowerCase();
+  }
+
+  public async getPageSpeedInsights(
+    url: string, 
+    strategy: 'mobile' | 'desktop' = 'mobile'
+  ): Promise<ResponsePageSpeed> {
+    try {
+      const { data } = await this.pageSpeed.pagespeedapi.runpagespeed({
+        url,
+        strategy,
+        category: ['performance', 'accessibility', 'best-practices', 'seo', 'pwa'],
+        key: this.PAGESPEED_API_KEY
+      });
+
+      return this.transformPageSpeedData(data);
+    } catch (error: any) {
+      console.error('PageSpeed API Error:', error.message);
+      throw new Error('Failed to fetch PageSpeed insights');
+    }
+  }
+
+  private transformPageSpeedData(data: any): ResponsePageSpeed {
+    const categories = data.lighthouseResult.categories;
+    const audits = data.lighthouseResult.audits;
+
+    return {
+      performance: {
+        score: categories.performance.score * 100,
+        metrics: {
+          firstContentfulPaint: audits['first-contentful-paint'].numericValue,
+          speedIndex: audits['speed-index'].numericValue,
+          largestContentfulPaint: audits['largest-contentful-paint'].numericValue,
+          cumulativeLayoutShift: audits['cumulative-layout-shift'].numericValue,
+          totalBlockingTime: audits['total-blocking-time'].numericValue
         }
       },
-      performance: {
-        value: responsePageSpeed.lighthouseResult.categories.performance.score * 100,
-        name: responsePageSpeed.lighthouseResult.categories.performance.title
-      },
       accessibility: {
-        value: responsePageSpeed.lighthouseResult.categories.accessibility.score * 100,
-        name: responsePageSpeed.lighthouseResult.categories.accessibility.title
+        score: categories.accessibility.score * 100
       },
       bestPractices: {
-        value: responsePageSpeed.lighthouseResult.categories['best-practices'].score * 100,
-        name: responsePageSpeed.lighthouseResult.categories['best-practices'].title
+        score: categories['best-practices'].score * 100
       },
       seo: {
-        value: responsePageSpeed.lighthouseResult.categories.seo.score * 100,
-        name: responsePageSpeed.lighthouseResult.categories.seo.title
+        score: categories.seo.score * 100
       }
-    }
-
-    return response;
-  } catch (error) {
-    console.error("Error fetching PageSpeed Insights data:", error);
-    throw new Error("Failed to fetch PageSpeed Insights data");
+    };
   }
-}
-private calculatePenalty(metricScore: number, metric: keyof typeof LighthousePerformanceWeights): number {
-  const weight = LighthousePerformanceWeights[metric];
-  const penalty = (1 - metricScore) * weight * 100;
-  return Math.round(penalty || ( weight * 100 ) );
-}
-
 }

@@ -11,12 +11,19 @@ export interface BuildBodyOptions {
     keepEmptyRows?: boolean;
 }
 export interface ResponsePageSpeed {
-    captchaResult:        string;
-    kind:                 string;
-    id:                   string;
-    loadingExperience:    LoadingExperience;
-    lighthouseResult:     LighthouseResult;
-    analysisUTCTimestamp: Date;
+  performance: {
+    score: number;
+    metrics: {
+      firstContentfulPaint: number;
+      speedIndex: number;
+      largestContentfulPaint: number;
+      cumulativeLayoutShift: number;
+      totalBlockingTime: number;
+    };
+  };
+  accessibility: { score: number };
+  bestPractices: { score: number };
+  seo: { score: number };
 }
 
 export interface LighthouseResult {
@@ -1191,4 +1198,30 @@ export interface Timing {
 
 export interface LoadingExperience {
     initial_url: string;
+}
+export interface SearchConsoleResponse {
+    rows: Array<{
+      keys: string[];
+      clicks: number;
+      impressions: number;
+      ctr: number;
+      position: number;
+    }>;
+    aggregationType?: string;
+}
+
+export interface ResponsePageSpeed {
+    performance: {
+        score: number;
+        metrics: {
+            firstContentfulPaint: number;
+            speedIndex: number;
+            largestContentfulPaint: number;
+            cumulativeLayoutShift: number;
+            totalBlockingTime: number;
+        };
+    };
+    accessibility: { score: number };
+    bestPractices: { score: number };
+    seo: { score: number };
 }

@@ -16,6 +16,10 @@
   "license": "ISC",
   "dependencies": {
     "@prisma/client": "^6.0.1",
+    "@types/aws-sdk": "^2.7.4",
+    "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^6.4.17",
+    "aws-sdk": "^2.1692.0",
     "axios": "^1.7.9",
     "bcrypt": "^5.1.1",
     "body-parser": "^1.20.3",
@@ -28,7 +32,9 @@
     "express-validator": "^7.2.0",
     "googleapis": "^144.0.0",
     "jsonwebtoken": "^9.0.2",
-    "lighthouse": "^12.3.0"
+    "lighthouse": "^12.3.0",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.10.1"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
