@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { validateEmail, validateExistEmail, validateUser } from '../middleware/authMiddleware';
+import { validateEmail, validateExistEmail, validateExistUser, validateUser } from '../middleware/authMiddleware';
 import { AuthController } from '../controllers/AuthController';
 import { IntegrationController } from '../controllers/IntegrationController';
 const router = express.Router();
@@ -24,5 +24,10 @@ router.get(
 router.get(
     '/google/callback',
     (req: Request, res: Response) => integrationController.connectGoogle(req, res)
+);
+router.patch(
+    '/profile/:id',
+    validateExistUser,
+    (req: Request, res: Response) => authController.updateProfile(req, res)
 );
 export default router;

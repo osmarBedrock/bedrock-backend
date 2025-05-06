@@ -309,7 +309,8 @@ export class GoogleApiService {
       // 5. Return data for DNS configuration
       return {
         dnsRecord: `TXT ${domain} "google-site-verification=${verification.data.token}"`,
-        verificationUrl: `https://search.google.com/search-console?resource_id=sc-domain:${domain}`
+        verificationUrl: `https://search.google.com/search-console?resource_id=sc-domain:${domain}`,
+        token: verification.data.token
       };
   
     } catch (error: any) {

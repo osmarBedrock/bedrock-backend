@@ -37,8 +37,18 @@ export const validateExistEmail = async (req: Request, res: Response, next: Next
   next();
 };
 
-export const validateUser = async (req: Request, res: Response, next: NextFunction) => {
+export const validateExistUser = async (req: Request, res: Response, next: NextFunction) => {
+  const authController = new AuthController();
+  const user = await authController.existUser(req, res);
+  if(!user){
+    res.status(401).json({ message: 'User not found' });
+    return;
+  }
+  req.body.user = user;
+  next();
+};
 
+export const validateUser = async (req: Request, res: Response, next: NextFunction) => {
   const { password } = req.body;
   const authController = new AuthController();
   const user = await authController.existUser(req, res);

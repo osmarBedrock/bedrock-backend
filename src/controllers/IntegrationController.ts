@@ -25,6 +25,7 @@ export class IntegrationController {
         const { googleToken, refreshToken, user: googleUser, expiresAt } = await this.googleService.getTokenUserData(code as string);
         
         let user = await this.prisma.user.findUnique({ where: { email: googleUser.email }});
+        let haveWebsite = true;
 
         // First Google login
         if (!user) {
@@ -39,6 +40,7 @@ export class IntegrationController {
                     isProfileComplete: false
                 }
             });
+            haveWebsite = false;
         }
 
         const integration = await this.prisma.integration.upsert({
@@ -57,6 +59,23 @@ export class IntegrationController {
             }
         });
 
+        if (!haveWebsite) {
+            const website = await this.prisma.website.create({
+                data: {
+                    userId: user?.id ?? 0,
+                    domain: '',
+                    isVerified: false,
+                    verificationCode: '',
+                    googleAccessToken: googleToken ?? '',
+                    googleRefreshToken: refreshToken ?? '',
+                    propertyId: null
+                }
+            });
+
+            res.status(200).json({ message: 'Google account connected successfully', integration, website, user });
+            return;
+        }
+
         const website = await this.prisma.website.findFirst({
             where: { userId: user?.id ?? 0 }
         });
@@ -65,20 +84,26 @@ export class IntegrationController {
         let verificationData: any;
 
         if (website) {
-            verificationData = await this.googleService.verifyDomain(website.domain);
-            const propertyId = await this.googleService.getGA4PropertyId(website.domain);
+          const propertyId = await this.googleService.getGA4PropertyId(website.domain);
+          verificationData = await this.googleService.verifyDomain(website.domain);
 
-            updatedWebsite = await this.prisma.website.update({
-              where: { id: website.id },
-              data: {
-                googleAccessToken: googleToken,
-                googleRefreshToken: refreshToken,
-                verificationCode: verificationData.dnsRecord.split('=')[1],
-                propertyId,
-                isVerified: false // Reset until new verification
-              }
-            });
+          updatedWebsite = await this.prisma.website.update({
+            where: { id: website.id },
+            data: {
+              googleAccessToken: googleToken,
+              googleRefreshToken: refreshToken,
+              verificationCode: verificationData.token,
+              propertyId,
+              isVerified: false // Reset until new verification
+            }
+          });
       
+          user = await this.prisma.user.update({
+            where: { id: user?.id ?? 0 },
+            data: {
+              isProfileComplete: true
+            }
+          });
             // 6. Send email with instructions
             // await this.emailService.sendVerificationEmail(
             //     user!.email,
@@ -86,7 +111,7 @@ export class IntegrationController {
             //     verificationData.dnsRecord
             // );
         }
-      
+
         res.status(200).json({ message: 'Google account connected successfully', integration, website: updatedWebsite, verificationData, user });
     } catch (error) {
         res.status(500).json({ error: 'Google integration failed' });

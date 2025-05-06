@@ -52,11 +52,53 @@ export class AuthController {
             // await this.emailService.sendVerificationEmail(email, domain, website.verificationCode!);
 
             const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, { expiresIn: '1h' });
-            res.status(201).json({ user, token });
+            res.status(201).json({ user, token, website });
             return;
         } catch (error) {
             console.log('error', error);
             res.status(500).json({ error: 'Registration failed' });
+            return;
+        }
+    }
+
+    async updateProfile(req: Request, res: Response) {
+        try {
+            const { id } = req.params;
+            const { user, domain, enterpriseName, firstName, lastName } = req.body;
+            const updatedUser = await this.prisma.user.update({
+                where: { id: parseInt(id) },
+                data: {
+                    enterpriseName,
+                    firstName,
+                    lastName,
+                    isProfileComplete: true
+                },
+                include: {
+                    websites: true,
+                }
+            });
+            const { accessToken, refreshToken, expiresAt } = user.integrations[0];
+            const tokens = {
+                access_token: accessToken,
+                refresh_token: refreshToken,
+                expiry_date: new Date(expiresAt).getTime(),
+            }
+            this.googleService.setCredentials(tokens);
+            const propertyId = await this.googleService.getGA4PropertyId(domain);
+            const verificationData = await this.googleService.verifyDomain(domain);
+            const website = await this.prisma.website.update({
+                where: { id: updatedUser.websites[0].id },
+                data: {
+                    domain,
+                    verificationCode: verificationData.token,
+                    propertyId,
+                    isVerified: false
+                }
+            });
+
+            res.status(200).json({ user: updatedUser, website });
+        } catch (error) {
+            res.status(500).json({ error: 'Update profile failed' });
             return;
         }
     }
@@ -74,7 +116,6 @@ export class AuthController {
     async googleAuth(req: Request, res: Response) {
         try {
             const url = this.googleService.getAuthUrl();
-            console.log('url', url);
             res.status(200).json({ url });
         } catch (error) {
             res.status(500).json({ error: 'Google auth failed' });
