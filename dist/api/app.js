@@ -20,37 +20,27 @@ class Server {
     }
     middlewares() {
         const corsOptions = {
-            origin: (origin, callback) => {
-                // list of allowed domains (add others if necessary)
-                const allowedOrigins = [
-                    'https://app.vantagewp.io',
-                    'https://api.app.vantagewp.io',
-                    'https://main.d2pfg8xcjwzzq.amplifyapp.com'
-                ];
-                // Allow requests without 'origin' (like Postman or server to server)
-                if (!origin || allowedOrigins.includes(origin)) {
-                    callback(null, true);
-                }
-                else {
-                    callback(new Error('Blocked by CORS'));
-                }
-            },
-            methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-            allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+            origin: [
+                'https://app.vantagewp.io',
+                /\.amplifyapp\.com$/
+            ],
+            methods: ['GET,HEAD,PUT,PATCH,POST,DELETE', 'OPTIONS'],
+            allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With'],
+            exposedHeaders: ['Authorization', 'X-Session-Id'],
             credentials: true,
-            optionsSuccessStatus: 204,
-            preflightContinue: false,
-            debug: true
+            maxAge: 86400
         };
         // CORS
         this.app.use((0, cors_1.default)(corsOptions));
         this.app.options('*', (0, cors_1.default)(corsOptions));
-        this.app.use(express_1.default.json());
         this.app.use((req, res, next) => {
             // Essential header configuration
             res.header('Content-Type', 'application/json; charset=utf-8');
+            res.header('X-Powered-By', 'My Awesome API');
+            res.header('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
             next();
         });
+        this.app.use(express_1.default.json());
         const domainVerificationJob = new domainVerification_job_1.DomainVerificationJob();
         domainVerificationJob.start();
         this.app.use(express_1.default.static('public'));
