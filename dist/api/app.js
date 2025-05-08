@@ -47,9 +47,8 @@ class Server {
         this.app.options('*', (0, cors_1.default)(corsOptions));
         this.app.use(express_1.default.json());
         this.app.use((req, res, next) => {
-            // Configuración esencial de headers
+            // Essential header configuration
             res.header('Content-Type', 'application/json; charset=utf-8');
-            res.header('X-Content-Type-Options', 'nosniff');
             next();
         });
         const domainVerificationJob = new domainVerification_job_1.DomainVerificationJob();
