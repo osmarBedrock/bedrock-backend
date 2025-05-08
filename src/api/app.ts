@@ -22,9 +22,18 @@ class Server {
     }
 
     middlewares() {
-
+        const corsOptions = {
+            origin: [
+              'https://app.vantagewp.io',
+              'https://api.app.vantagewp.io',
+              'https://main.d2pfg8xcjwzzq.amplifyapp.com'
+            ],
+            methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+            credentials: true,
+            optionsSuccessStatus: 204
+        };
         // CORS
-        this.app.use(cors());
+        this.app.use(cors(corsOptions));
 
         this.app.use(express.json());
         
