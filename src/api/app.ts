@@ -48,9 +48,15 @@ class Server {
         // CORS
         this.app.use(cors(corsOptions));
         this.app.options('*', cors(corsOptions));
-
         this.app.use(express.json());
         
+        this.app.use((req, res, next) => {
+            // Configuración esencial de headers
+            res.header('Content-Type', 'application/json; charset=utf-8');
+            res.header('X-Content-Type-Options', 'nosniff');
+            next();
+        });
+
         const domainVerificationJob = new DomainVerificationJob();
         domainVerificationJob.start();
 
@@ -64,7 +70,7 @@ class Server {
     }
 
     listen() {
-        this.app.listen(this.port, '0.0.0.0', () => {
+        this.app.listen(this.port, () => {
             console.log('server running in port: ', this.port);
         });
     }
