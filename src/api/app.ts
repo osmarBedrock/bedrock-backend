@@ -23,17 +23,31 @@ class Server {
 
     middlewares() {
         const corsOptions = {
-            origin: [
-              'https://app.vantagewp.io',
-              'https://api.app.vantagewp.io',
-              'https://main.d2pfg8xcjwzzq.amplifyapp.com'
-            ],
+            origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+                // list of allowed domains (add others if necessary)
+                const allowedOrigins = [
+                    'https://app.vantagewp.io',
+                    'https://api.app.vantagewp.io',
+                    'https://main.d2pfg8xcjwzzq.amplifyapp.com'
+                ];
+        
+                // Allow requests without 'origin' (like Postman or server to server)
+                if (!origin || allowedOrigins.includes(origin)) {
+                    callback(null, true);
+                } else {
+                    callback(new Error('Blocked by CORS'));
+                }
+            },
             methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+            allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
             credentials: true,
-            optionsSuccessStatus: 204
+            optionsSuccessStatus: 204,
+            preflightContinue: false,
+            debug: true 
         };
         // CORS
         this.app.use(cors(corsOptions));
+        this.app.options('*', cors(corsOptions));
 
         this.app.use(express.json());
         
