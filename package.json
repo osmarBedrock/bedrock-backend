@@ -4,7 +4,7 @@
   "description": "",
   "main": "src/server.ts",
   "scripts": {
-    "start": "NODE_ENV=production node src/server.ts",
+    "start": "NODE_ENV=production node src/server.js",
     "dev": "nodemon src/server.ts",
     "local": "NODE_ENV=local dotenv -e config/local.env nodemon src/index.ts",
     "vercel-build": "npm install && prisma generate",
