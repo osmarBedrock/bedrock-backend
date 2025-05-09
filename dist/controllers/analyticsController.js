@@ -18,7 +18,7 @@ class AnalyticsController {
     getUsage(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const { userId } = req.headers;
+                const userId = req.headers['x-user-id'];
                 const usage = yield this.prisma.planUsage.findUnique({
                     where: { userId: parseInt(userId) },
                     include: { user: true }
@@ -38,7 +38,7 @@ class AnalyticsController {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 const { domain } = req.params;
-                const { userId } = req.headers;
+                const userId = req.headers['x-user-id'];
                 const website = yield this.prisma.website.findFirst({});
                 if (!website) {
                     return res.status(404).json({ error: 'Website not found' });

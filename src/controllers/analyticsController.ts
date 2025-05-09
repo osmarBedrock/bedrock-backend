@@ -11,7 +11,7 @@ export class AnalyticsController {
 
   async getUsage(req: Request, res: Response) {
     try { 
-      const {userId} = req.headers;
+      const userId = req.headers['x-user-id'];
       const usage = await this.prisma.planUsage.findUnique({
         where: { userId: parseInt(userId as string) },
         include: { user: true }
@@ -30,7 +30,7 @@ export class AnalyticsController {
   async getKeywords(req: Request, res: Response) {
     try {
       const { domain } = req.params;
-      const {userId} = req.headers;
+      const userId = req.headers['x-user-id'];
       const website = await this.prisma.website.findFirst({
       });
       

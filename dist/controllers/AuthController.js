@@ -194,7 +194,7 @@ class AuthController {
     userWithIntegrations(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const userId = parseInt(req.headers.userid);
+                const userId = parseInt(req.headers['x-user-id']);
                 const user = yield this.prisma.user.findUnique({
                     where: { id: userId },
                     include: {
