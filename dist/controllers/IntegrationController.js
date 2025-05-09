@@ -113,7 +113,7 @@ class IntegrationController {
     getIntegrations(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const { userId } = req.headers;
+                const userId = req.headers['x-user-id'];
                 const integrations = yield this.prisma.integration.findMany({
                     where: { userId: parseInt(userId) }
                 });

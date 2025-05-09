@@ -120,7 +120,7 @@ export class IntegrationController {
 
   async getIntegrations(req: Request, res: Response) {
     try {
-        const {userId} = req.headers;
+        const userId = req.headers['x-user-id'];
         const integrations = await this.prisma.integration.findMany({
             where: { userId: parseInt(userId as string) }
         });
